@@ -1,11 +1,12 @@
 from collections import defaultdict
 from lib2to3.pytree import Base
-from surprise import BaselineOnly, Dataset, Reader, accuracy, SVD
+from surprise import Dataset, Reader, accuracy
+from surprise import BaselineOnly, SVD, KNNBaseline, NormalPredictor
 from surprise.model_selection import train_test_split
 
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import numpy as np
 import time
 
 class NodeTypeError(Exception):
@@ -14,9 +15,12 @@ class NodeTypeError(Exception):
 PRODUCTION = 'production'
 RECOMMENDATION = 'recommendation'
 
+# random walk user -> item -> user -> item
+# collapse into items only graph
+
 #k is num of recommendations
 class Graph(object):
-  def __init__(self, producer_data, item_data, user_data, rating_data, production_data, k = 5):
+  def __init__(self, rating_data, production_data, k = 5):
     self._production_graph = defaultdict(set)
     self._recommendation_graph = defaultdict(set)
     self._graph = defaultdict(set)
@@ -27,11 +31,24 @@ class Graph(object):
     self._group2 = set()
     self._k = k
     self.add_connections(zip(production_data['producerId'],production_data['itemId']), PRODUCTION)
-    recommendations = self.get_initial_recs(rating_data, item_data['itemId'], user_data)
-    self.add_connections(zip(recommendations['itemId'],recommendations['userId']), RECOMMENDATION)
+    # recommendations = self.get_initial_recs(rating_data, item_data['itemId'], user_data)
+    self.add_connections(zip(rating_data['itemId'], rating_data['userId']), RECOMMENDATION)
+    # self.add_connections(zip(recommendations['itemId'],recommendations['userId']), RECOMMENDATION)
     
   def add_connections(self, connections, edge_type):
-    """ type: production, recommendation"""
+    """Add edges to subgraph of graph corresponding to the edge type
+
+    Args:
+      connections(zip object): zip object with the first iterable element
+        containing ids for left nodes and the second iterable element containing
+        ids for right nodes
+
+      edge_type(str): must be either PRODUCTION or RECOMMENDATION
+
+    Returns:
+      None
+    """
+
     if edge_type == PRODUCTION:
       l_prefix = 'p'
       r_prefix = 'i'
@@ -46,6 +63,10 @@ class Graph(object):
       left = l_prefix + left
       right = r_prefix + right
       self.add_edge(left, right, subgraph)
+  
+  def modify_connections(self, new_connections):
+    self._recommendation_graph = defaultdict(set)
+    self.add_connections(new_connections, RECOMMENDATION)
 
   def add_edge(self, node1, node2, graph):
     graph[node1].add(node2)
@@ -69,7 +90,7 @@ class Graph(object):
       return self.get_out_degree(node)
     elif node_type == 'p':
       v = 0
-      for item in self._graph[node]:
+      for item in self._production_graph[node]:
         v = v + self.find_individual_visibility(item)
       return v
     else:
@@ -78,7 +99,7 @@ class Graph(object):
   def find_group_visibility(self, group):
     sum = 0
     for provider in group:
-      sum = sum + self.find_individual_visibility('i'+ provider)
+      sum = sum + self.find_individual_visibility(provider)
     v = sum/(len(group)*self._k)
     return v
   
@@ -94,38 +115,46 @@ class Graph(object):
       subgraph = self._production_graph
     else:
       raise NodeTypeError('node type must be item or provider')
-    arr = [[node,len(value)] for node,value in subgraph.items()]
+    arr = [[node,self.find_individual_visibility(node)] for node,value in subgraph.items()]
     df = pd.DataFrame(arr, columns = ['nodeLabel', 'visibility'])
     return df
 
-  def find_initial_popularity(self, rating_data):
-    popularity_data = rating_data.groupby(['itemId'])['userId'].count().reset_index(name='count')
-    popularity_data['itemId'] = popularity_data['itemId'].apply(lambda x: f'{x:.0f}').astype(str)
-    return popularity_data
+  def find_initial_popularity(self):
+    popularity_df = self.find_all_visibilities('provider').rename(columns={'visibility': 'numRatings'})
+
+    return popularity_df
 
   def group_data_for_plotting(self, data):
-    sorted_data = data.groupby('count')['itemId'].count().reset_index(name='num_items').sort_values(by=['count'], ascending = False)
-    sorted_data['num_items'] = sorted_data['num_items'].cumsum()
-    print(sorted_data)
-    return sorted_data
+    grouped_data = data.groupby('numRatings')['nodeLabel'].count().reset_index(name = 'numItems').sort_values(by=['numRatings'], ascending = False)
+    # grouped_data['numItems'] = grouped_data['numItems'].cumsum()
+    # print(sorted_data)
+    return grouped_data
 
   def find_alpha(self, popularity_data):
-    # last_idx = sorted_data['count'][sorted_data['num_items'] < 2000].index[-1]
-    # alpha = sorted_data['count'][last_idx + 1]
-    alpha = popularity_data['count'].quantile(.8)
+    alpha = popularity_data['numRatings'].quantile(.8)
+    print(alpha)
     return alpha
   
-  def plot_data(self, x_data, y_data, x_label, y_label, title):
-    plt.plot(x_data, y_data)
+  def plot_data(self, x_data, y_data, x_label, y_label, title, plot_type, log = False):
+    if (log):
+      x_data = np.log2(x_data)
+
+    if plot_type == 'line':
+      plt.plot(x_data, y_data)
+    elif plot_type == 'bar':
+      x_data = x_data.clip(0,50)
+      plt.bar(x_data,y_data)
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     plt.title(title)
     plt.show()
 
+
+
   def get_groups_by_popularity(self, data, alpha):
     """ producers with visibility > alpha are popular """
-    group1 = data['itemId'][data['count'] > alpha]
-    group2 = data['itemId'][data['count'] <= alpha]
+    group1 = data['nodeLabel'][data['numRatings'] > alpha]
+    group2 = data['nodeLabel'][data['numRatings'] <= alpha]
     return group1, group2
 
   def get_predictions(self, rating_data, item_ids, user_ids, algorithm):
@@ -137,9 +166,20 @@ class Graph(object):
 
     if algorithm == 'baseline':
       algo = BaselineOnly()
-    algo.fit(trainset)
+    elif algorithm == 'random':
+      algo = NormalPredictor()
+    elif algorithm == 'SVD':
+      algo = SVD()
+    elif algorithm == 'KNN':
+      algo = KNNBaseline()
+    else:
+      raise ValueError("algorithm must be one of 'baseline', 'random', 'SVD', or 'KNN'")
 
-    print('getting predictions...')
+    print('fitting')
+    algo.fit(trainset)
+    
+    print('training')
+
     preds = [algo.predict(uid,iid) for iid in item_ids
                     for uid in user_ids]
     
@@ -147,16 +187,15 @@ class Graph(object):
 
   def get_top_k(self, predictions):
     """Return the top-k recommendation for each user from a set of predictions.
-
+    From https://surprise.readthedocs.io/en/stable/FAQ.html
     Args:
       predictions(list of Prediction objects): The list of predictions, as
             returned by the test method of an algorithm.
 
     Returns:
-    A dict where keys are user (raw) ids and values are lists of tuples:
+      A dict where keys are user (raw) ids and values are lists of tuples:
         [(raw item id, rating estimation), ...] of size k.
     """
-
     top_k = defaultdict(list)
     k = self._k
     for uid, iid, true_r, est, _ in predictions:
@@ -171,13 +210,22 @@ class Graph(object):
     return top_k
 
   def get_recommendation_edges(self, top_k):
-    #top_k into (item_id, user_id)
+    """ Return all edges (item, user) where the item is recommended to user
+
+    Args:
+      top_k (dict): A dict where keys are user (raw) ids and values are lists of
+        tuples: [(raw item id, rating estimation), ...] of size k.
+
+    Returns: 
+      A dataframe with columns ['itemId','userId].
+    
+    """
     print('getting recommendation edges...')
     lst = [[str(iid), str(uid)] for uid, recs in top_k.items() for iid, est in recs ]
     df = pd.DataFrame(lst, columns=['itemId','userId'])
     return df
 
-  def get_initial_recs(self, rating_data, item_ids, user_ids, algorithm = 'baseline'):
+  def get_recs(self, rating_data, item_ids, user_ids, algorithm = 'baseline'):
     t0 = time.clock()
     preds = self.get_predictions(rating_data, item_ids, user_ids, algorithm)
     t1 = time.clock() 
@@ -190,9 +238,3 @@ class Graph(object):
     print("time elapsed to get recommendation edges: ", t3-t2)
     print(rec_edges.head())
     return rec_edges
-
-
-    
-
-
-  

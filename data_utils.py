@@ -68,7 +68,7 @@ def get_companies(tmdb_id, n, companies):
         idx = n
         company_ids.append(idx)
         companies[company] = idx
-        write_company_to_file('movie-lens-small', idx, company)
+        write_company_to_file('movie-lens-25m', idx, company)
     return company_lst, company_ids, n, companies
   return None, None, n, companies
   
@@ -76,13 +76,17 @@ def write_items_companies_to_file(data_name, company_ids, movie_id):
   if data_name == 'movie-lens-small':
     dir_name = 'ml-latest-small-company'
     filepath = os.path.join(DATA_DIR, dir_name, 'movies-companies.csv')
+  elif data_name == 'movie-lens-25m':
+    dir_name = 'ml-25m-company'
+    filepath = os.path.join(DATA_DIR, dir_name, 'movies-companies.csv')
   elif data_name == 'book-crossing':
-    dir_name = 'BX-authors'
+    dir_name = 'BX-filtered-authors'
     filepath = os.path.join(DATA_DIR, dir_name, 'BX-book-authors.csv')
   f = open(filepath, 'a', newline='', encoding = 'utf-8')
   w = csv.writer(f, lineterminator = '\n')
   for id in company_ids:
     result = [movie_id, id]
+    print(result)
     w.writerow(result)
   f.close()
 
@@ -90,17 +94,21 @@ def write_company_to_file(data_name, company_id, company_name):
   if data_name == 'movie-lens-small':
     dir_name = 'ml-latest-small-company'
     filepath = os.path.join(DATA_DIR, dir_name, 'companies.csv')
+  elif data_name == 'movie-lens-25m':
+    dir_name = 'ml-25m-company'
+    filepath = os.path.join(DATA_DIR, dir_name, 'companies.csv')
   elif data_name == 'book-crossing':
-    dir_name = 'BX-authors'
+    dir_name = 'BX-filtered-authors'
     filepath = os.path.join(DATA_DIR, dir_name, 'BX-authors.csv')
   f = open(filepath, 'a', newline='', encoding = 'utf-8')
   w = csv.writer(f, lineterminator = '\n')
   result = [company_id, company_name]
+  print(result)
   w.writerow(result)
   f.close()
 
 def write_skipped_movies_to_file(skipped):
-  dir_name = 'ml-latest-small-company'
+  dir_name = 'ml-25m-company'
   filepath = os.path.join(DATA_DIR, dir_name, 'skipped-movies.csv')
   f = open(filepath, 'a', newline='', encoding = 'utf-8')
   w = csv.writer(f, lineterminator = '\n')
@@ -134,28 +142,27 @@ def get_movie_company_data(name):
   """Read a dataset specified by name into pandas dataframe."""
 
   if name == 'movie-lens-25m':
-    dir_name = 'ml-25m'
-    data_name = 'movies.csv'
+    dir_name = 'ml-25m/ml-25m'
   elif name == 'movie-lens-small':
     dir_name = 'ml-latest-small'
 
   csv_params = dict(header=0, usecols=[0, 2], names=['movieId', 'tmdbId'])
   tmdb_data = read_csv(dir_name, 'links.csv', csv_params)
-  # tmdb_data = tmdb_data[tmdb_data['movieId'] >= 160872]
+  tmdb_data = tmdb_data[tmdb_data['movieId'] >= 199786]
   tmdb_data['movieId'] = tmdb_data['movieId'].apply(lambda x: f'{x:.0f}').astype(str)
   tmdb_data['tmdbId'] = tmdb_data['tmdbId'].apply(lambda x: f'{x:.0f}').astype(str)
   
-  # companies, n = read_companies()
+  companies, n = read_companies()
 
-  # # movies skipped because tmdb info does not exist
-  # for movie_id, tmdb_id in zip(tmdb_data['movieId'], tmdb_data['tmdbId']):
-  #   print('movie_id: ' + movie_id)
-  #   print('tmdb_id: ' + tmdb_id)
-  #   if tmdb_id != 'nan':
-  #     company_lst, company_ids, n, companies = get_companies(tmdb_id, n, companies)
-  #     if company_lst != None:
-  #       print(company_lst, company_ids)
-  #       write_items_companies_to_file(company_ids, movie_id)
+  # movies skipped because tmdb info does not exist
+  for movie_id, tmdb_id in zip(tmdb_data['movieId'], tmdb_data['tmdbId']):
+    print('movie_id: ' + movie_id)
+    print('tmdb_id: ' + tmdb_id)
+    if tmdb_id != 'nan':
+      company_lst, company_ids, n, companies = get_companies(tmdb_id, n, companies)
+      if company_lst != None:
+        print(company_lst, company_ids)
+        write_items_companies_to_file(name, company_ids, movie_id)
 
   skipped = tmdb_data[tmdb_data['tmdbId'] == 'nan']['movieId']
   write_skipped_movies_to_file(skipped)
@@ -210,7 +217,7 @@ def get_author_data(temp_data):
     if author not in authors:
       n = n+1
       authors[author] = n
-      write_company_to_file('book-crossing', n, author.title())
+      # write_company_to_file('book-crossing', n, author.title())
     write_items_companies_to_file('book-crossing',[n],book_id)
 
 def get_rating_data(track_data):
@@ -229,18 +236,23 @@ def column_to_string(dataset, column):
 def get_data(name):
   """Read a dataset specified by name into pandas dataframe."""
 
-  if name == 'movie-lens-25m':
-    dir_name = 'ml-25m'
-  elif name == 'movie-lens-small':
-    dir_name = 'ml-latest-small'
+  if name[0:5] == 'movie':
+    if name == 'movie-lens-25m':
+      dir_name = 'ml-25m/ml-25m'
+    elif name == 'movie-lens-small':
+      dir_name = 'ml-latest-small'
+    elif name == 'movie-lens-100k':
+      dir_name = ''
     csv_params = dict(header=0, usecols=[0, 1], names=['itemId', 'itemName'])
     item_data = read_csv(dir_name, 'movies.csv', csv_params)
 
     csv_params = dict(header=0, usecols=[0, 1, 2], 
       names=['userId', 'itemId', 'rating',])
     rating_data = read_csv(dir_name, 'ratings.csv', csv_params)
-
-    user_data = get_users(rating_data)
+    rating_data['itemId'] = rating_data['itemId'].apply(lambda x: f'{x:.0f}').astype(str)
+    rating_data['userId'] = rating_data['userId'].apply(lambda x: f'{x:.0f}').astype(str)
+    
+    user_data = get_users(rating_data) 
 
     dir_name = 'ml-latest-small-company'
     csv_params = dict(header=0, usecols=[0, 1], names=['producerId', 'producerName'])
@@ -255,60 +267,58 @@ def get_data(name):
     data = (producer_data, item_data, user_data, rating_data, production_data)
   elif name == 'book-crossing':
     dir_name = 'BX-CSV'
-    csv_params = dict(header=0, usecols=[0, 1], names=['itemId', 'title'],
+    csv_params = dict(header=0, usecols=[0, 1, 2], names=['itemId', 'title', 'tempName'],
       quotechar='"', delimiter=';',quoting=csv.QUOTE_ALL, skipinitialspace=True,
       escapechar='\\', engine='python')
-    item_data = read_csv(dir_name, 'BX-Books.csv', csv_params)
+    book_data = read_csv(dir_name, 'BX-Books.csv', csv_params)
 
     csv_params = dict(header=0, usecols=[0, 1, 2], 
       names=['userId', 'itemId', 'rating'],
       quotechar='"', delimiter=';',quoting=csv.QUOTE_ALL,skipinitialspace=True,
       escapechar='\\', engine='python')
-    rating_data = read_csv(dir_name, 'BX-Book-Ratings.csv', csv_params)
-    rating_data['rating'] = rating_data['rating'].apply(lambda x: x/2)
-
-    user_data = get_users(rating_data)
-    # csv_params = dict(header=0, usecols=[0, 4], names=['ISBN', 'companyName'],
-    #   quotechar='"', delimiter=';',quoting=csv.QUOTE_ALL,skipinitialspace=True,
-    #   escapechar='\\', engine='python')
-    # production_data = read_csv(dir_name, 'BX-Books.csv', csv_params)
-    # get_publisher_data(production_data['companyName'])
-
-    csv_params = dict(header=0, usecols=[0, 2], names=['itemId', 'producerName'],
-      quotechar='"', delimiter=';',quoting=csv.QUOTE_ALL,skipinitialspace=True,
-      escapechar='\\', engine='python')
-    temp_data = read_csv(dir_name, 'BX-Books.csv', csv_params)
+    ratings = read_csv(dir_name, 'BX-Book-Ratings.csv', csv_params)
+    ratings['rating'] = ratings['rating'].apply(lambda x: x/2)
+    ratings['userId'] = column_to_string(ratings, 'userId')
+    
+    merged_data = pd.merge(book_data, ratings, on = 'itemId', how = 'inner')
+    print(merged_data.head())
+    
+    items = merged_data[['itemId', 'title', 'tempName']].drop_duplicates().reset_index(drop = True)
+    temp_data = items[['itemId','tempName']]
 
     # only run when author data is empty
     # get_author_data(temp_data)
     csv_params = dict(header=0,usecols=[0, 1],names=['producerId','producerName'],
       engine='python')
-    producer_data = read_csv('BX-authors', 'BX-authors.csv',csv_params)
+
+    producer_data = read_csv('BX-filtered-authors', 'BX-authors.csv',csv_params)
     producer_data['producerId'] = column_to_string(producer_data, 'producerId')
 
     csv_params = dict(header=0,usecols=[0, 1],names=['itemId','producerId'],
       engine='python')
-    production_data = read_csv('BX-authors', 'BX-book-authors.csv',csv_params)
+    production_data = read_csv('BX-filtered-authors', 'BX-book-authors.csv',csv_params)
     production_data['producerId'] = column_to_string(production_data, 'producerId')
+    # print('production df:\t{}'.format(production_data.shape))
+    # print(production_data.head())
+
+    min_book_ratings = 2
+    item_rating_producer = pd.merge(production_data, merged_data)
+    min_ratings_filter = item_rating_producer['itemId'].value_counts() > min_book_ratings
+    filtered_data = item_rating_producer[item_rating_producer['itemId'].map(min_ratings_filter)]
+
+    rating_data = filtered_data[['userId', 'itemId', 'rating']]
+    
+    print('item-rating-producer df:\t{}'.format(item_rating_producer.shape))
+    print(item_rating_producer.head())
+
+    item_data = filtered_data[['itemId', 'title']].drop_duplicates().reset_index(drop=True)
+    user_data = get_users(rating_data)
+    production_data = filtered_data[['itemId', 'producerId']].drop_duplicates().reset_index(drop=True)
+    producer_data = None
 
     data = (producer_data, item_data, user_data, rating_data, production_data)
-  elif name == 'lastfm-10':
-    dir_name = 'lastfm-10'
-    #userid \t timestamp \t artistid \t artist-name \t trackid \t track-name
-    data_name = 'userid-timestamp-artid-artname-traid-traname.tsv'
-    csv_params = dict(header=0, usecols=[0,1,3,5], sep = '\t',
-                          names=['userId','timestamp','producerName','trackName'])
-    track_data= read_csv(dir_name, data_name, csv_params)
-    rating_data = get_rating_data(track_data)
-    # rating_data = None
-    csv_params = dict(header=0, usecols=[2,3], sep = '\t',
-                          names=['producerId', 'producerName'])
-    producer_data = read_csv(dir_name, data_name, csv_params)
-        
-    production_data = get_production_data(track_data)
-    # log transform for better scaling
-    data = (track_data, rating_data, producer_data, production_data)
   else:
     ValueError('not a valid dataset name')
     
   return data
+
