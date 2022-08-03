@@ -126,9 +126,12 @@ def get_last_line(filepath):
     last_line = f.readline()
   return last_line.split(',')
   
-def read_companies():
+def read_companies(name):
   """ """
-  dir_name = 'ml-latest-small-company'
+  if name == 'movie-lens-small':
+    dir_name = 'ml-latest-small-company'
+  elif name == 'movie-lens-25m':
+    dir_name = 'ml-25m-company'
   csv_params = dict(header=0, usecols=[0, 1], names=['companyId', 'companyName'])
   company_data = read_csv(dir_name, 'companies.csv', csv_params)
   companies = {}
@@ -139,7 +142,6 @@ def read_companies():
   return companies, n
 
 def get_movie_company_data(name):
-  """Read a dataset specified by name into pandas dataframe."""
 
   if name == 'movie-lens-25m':
     dir_name = 'ml-25m/ml-25m'
@@ -148,11 +150,11 @@ def get_movie_company_data(name):
 
   csv_params = dict(header=0, usecols=[0, 2], names=['movieId', 'tmdbId'])
   tmdb_data = read_csv(dir_name, 'links.csv', csv_params)
-  tmdb_data = tmdb_data[tmdb_data['movieId'] >= 199786]
+  tmdb_data = tmdb_data[tmdb_data['movieId'] >= 205431]
   tmdb_data['movieId'] = tmdb_data['movieId'].apply(lambda x: f'{x:.0f}').astype(str)
   tmdb_data['tmdbId'] = tmdb_data['tmdbId'].apply(lambda x: f'{x:.0f}').astype(str)
   
-  companies, n = read_companies()
+  companies, n = read_companies(name)
 
   # movies skipped because tmdb info does not exist
   for movie_id, tmdb_id in zip(tmdb_data['movieId'], tmdb_data['tmdbId']):
@@ -239,10 +241,10 @@ def get_data(name):
   if name[0:5] == 'movie':
     if name == 'movie-lens-25m':
       dir_name = 'ml-25m/ml-25m'
+      company_dir_name = 'ml-25m-company'
     elif name == 'movie-lens-small':
       dir_name = 'ml-latest-small'
-    elif name == 'movie-lens-100k':
-      dir_name = ''
+      company_dir_name = 'ml-latest-small-company'
     csv_params = dict(header=0, usecols=[0, 1], names=['itemId', 'itemName'])
     item_data = read_csv(dir_name, 'movies.csv', csv_params)
 
@@ -254,13 +256,12 @@ def get_data(name):
     
     user_data = get_users(rating_data) 
 
-    dir_name = 'ml-latest-small-company'
     csv_params = dict(header=0, usecols=[0, 1], names=['producerId', 'producerName'])
-    producer_data = read_csv(dir_name, 'companies.csv', csv_params)
+    producer_data = read_csv(company_dir_name, 'companies.csv', csv_params)
     producer_data['producerId'] = column_to_string(producer_data, 'producerId')
 
     csv_params = dict(header=0, usecols=[0, 1], names=['itemId', 'producerId']) 
-    production_data = read_csv(dir_name, 'movies-companies.csv', csv_params)
+    production_data = read_csv(company_dir_name, 'movies-companies.csv', csv_params)
     production_data['itemId'] = column_to_string(production_data, 'itemId')
     production_data['producerId'] = column_to_string(production_data, 'producerId')
 

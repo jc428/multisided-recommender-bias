@@ -1,8 +1,7 @@
 from collections import defaultdict
-from lib2to3.pytree import Base
 from surprise import Dataset, Reader, accuracy
 from surprise import BaselineOnly, SVD, KNNBaseline, NormalPredictor
-from surprise.model_selection import train_test_split
+from surprise.model_selection import GridSearchCV, cross_validate
 
 import numpy as np
 import pandas as pd
@@ -97,16 +96,19 @@ class Graph(object):
       raise NodeTypeError('node must be provider or item')
 
   def find_group_visibility(self, group):
-    sum = 0
+    numUsers = 0
+    numItems = 0
+
     for provider in group:
-      sum = sum + self.find_individual_visibility(provider)
-    v = sum/(len(group)*self._k)
+      numUsers = numUsers + self.find_individual_visibility(provider)
+      numItems = numItems + self.get_out_degree(provider)
+    v = numUsers /(numItems*self._k)
     return v
   
   def find_disparate_visibility(self, g1, g2):
     v1 = self.find_group_visibility(g1)
-    v2 = self.find_disparate_visibility(g2)
-    return v1/len(g1) - v2/len(g2)
+    v2 = self.find_group_visibility(g2)
+    return v1 - v2
 
   def find_all_visibilities(self, node_type):
     if node_type == 'item':
@@ -121,35 +123,44 @@ class Graph(object):
 
   def find_initial_popularity(self):
     popularity_df = self.find_all_visibilities('provider').rename(columns={'visibility': 'numRatings'})
+    popularity_df = popularity_df.sort_values(by=['numRatings'], ascending = False).reset_index(drop = True)
+    popularity_df.reset_index(inplace=True)
+    popularity_df = popularity_df.rename(columns={'index': 'provider'})
 
     return popularity_df
 
   def group_data_for_plotting(self, data):
-    grouped_data = data.groupby('numRatings')['nodeLabel'].count().reset_index(name = 'numItems').sort_values(by=['numRatings'], ascending = False)
-    # grouped_data['numItems'] = grouped_data['numItems'].cumsum()
+    grouped_data = data.groupby('numRatings')['nodeLabel'].count().reset_index(name = 'numProviders').sort_values(by=['numRatings'], ascending = False)
+    # grouped_data['numProviders'] = grouped_data['numProviders'].cumsum() 
     # print(sorted_data)
     return grouped_data
 
   def find_alpha(self, popularity_data):
-    alpha = popularity_data['numRatings'].quantile(.8)
+    alpha = popularity_data['numRatings'].quantile(.97)
     print(alpha)
     return alpha
   
   def plot_data(self, x_data, y_data, x_label, y_label, title, plot_type, log = False):
     if (log):
-      x_data = np.log2(x_data)
-
+      y_data = np.log2(y_data)
     if plot_type == 'line':
-      plt.plot(x_data, y_data)
+      plt.plot(x_data, y_data, 'o-')
     elif plot_type == 'bar':
-      x_data = x_data.clip(0,50)
       plt.bar(x_data,y_data)
+    
+    alpha1  = y_data.quantile(.70)
+    alpha2 = y_data.quantile(.80)
+    alpha3 = y_data.quantile(.9)
+    alpha4 = y_data.quantile(.97)
+    alpha5 = y_data.quantile(.98)
+
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     plt.title(title)
+    plt.axhline(y = alpha4, color = 'red')
+    plt.axhline(y = alpha5, color = 'blue')
+    plt.text(0, alpha4, str(alpha4), ha = 'left', va = 'center')
     plt.show()
-
-
 
   def get_groups_by_popularity(self, data, alpha):
     """ producers with visibility > alpha are popular """
@@ -157,13 +168,34 @@ class Graph(object):
     group2 = data['nodeLabel'][data['numRatings'] <= alpha]
     return group1, group2
 
-  def get_predictions(self, rating_data, item_ids, user_ids, algorithm):
-    """ rating_data: pandas dataframe with columns userId, itemId, rating"""
+  def select_model(self, rating_data, algorithm, param_grid):
+    if algorithm == 'SVD':
+      reader = Reader(rating_scale=(1,5))
+      data = Dataset.load_from_df(rating_data[['userId', 'itemId', 'rating']], reader)
+      gs = GridSearchCV(SVD, param_grid, measures=['rmse', 'mae'], cv=3)
+      gs.fit(data)
+      print('best rmse: ', gs.best_score['rmse'])
+      print(gs.best_params['rmse'])
+
+      return gs.best_estimator['rmse']
+    else:
+      pass
+
+  def load_data(self, rating_data):
     reader = Reader(rating_scale=(1,5))
     data = Dataset.load_from_df(rating_data[['userId', 'itemId', 'rating']], reader)
-    # trainset, testset = train_test_split(data, test_size=.25)
-    trainset = data.build_full_trainset()
+    
+    return data
+  
+  def compare_models(self, data):
+    algos = [NormalPredictor(), BaselineOnly(), SVD(), KNNBaseline()]
+    print('cross validating random')
+    cross_validate(algos[3], data, measures=['RMSE', 'MAE'], cv=5, verbose=True)
 
+  def get_predictions(self, data, algorithm):
+    """ rating_data: pandas dataframe with columns userId, itemId, rating"""
+
+    trainset = data.build_full_trainset()
     if algorithm == 'baseline':
       algo = BaselineOnly()
     elif algorithm == 'random':
@@ -175,17 +207,11 @@ class Graph(object):
     else:
       raise ValueError("algorithm must be one of 'baseline', 'random', 'SVD', or 'KNN'")
 
-    print('fitting')
     algo.fit(trainset)
-    
-    print('training')
 
-    preds = [algo.predict(uid,iid) for iid in item_ids
-                    for uid in user_ids]
-    
-    return preds
+    return algo
 
-  def get_top_k(self, predictions):
+  def get_top_k(self, algo, item_ids, user_ids):
     """Return the top-k recommendation for each user from a set of predictions.
     From https://surprise.readthedocs.io/en/stable/FAQ.html
     Args:
@@ -196,16 +222,22 @@ class Graph(object):
       A dict where keys are user (raw) ids and values are lists of tuples:
         [(raw item id, rating estimation), ...] of size k.
     """
+    print('getting preds')
+
     top_k = defaultdict(list)
     k = self._k
-    for uid, iid, true_r, est, _ in predictions:
-      top_k[uid].append((iid, est))
-
-    print('getting top k...')
-    # Then sort the predictions for each user and retrieve the k highest ones.
-    for uid, user_ratings in top_k.items():
-      user_ratings.sort(key=lambda x: x[1], reverse=True)
-      top_k[uid] = user_ratings[:k]
+  # reorder so run it for each user, then get recommendations (don't keep score for every single item)
+    for uid in user_ids:
+      # print('getting recs for {}'.format(uid))
+      preds = [(iid, algo.predict(uid,iid).est) for iid in item_ids]
+      preds.sort(key=lambda x: x[1], reverse=True)
+      top_k[uid] = preds[:k]
+ 
+    # print('getting top k...')
+    # # Then sort the predictions for each user and retrieve the k highest ones.
+    # for uid, user_ratings in top_k.items():
+    #   user_ratings.sort(key=lambda x: x[1], reverse=True)
+    #   top_k[uid] = user_ratings[:k]
 
     return top_k
 
@@ -227,10 +259,10 @@ class Graph(object):
 
   def get_recs(self, rating_data, item_ids, user_ids, algorithm = 'baseline'):
     t0 = time.clock()
-    preds = self.get_predictions(rating_data, item_ids, user_ids, algorithm)
+    algo = self.get_predictions(rating_data, algorithm)
     t1 = time.clock() 
     print("time elapsed to get predictions: ", t1-t0)
-    top_k = self.get_top_k(preds)
+    top_k = self.get_top_k(algo, item_ids, user_ids)
     t2 = time.clock()
     print("time elapsed to get top_k: ", t2-t1)
     rec_edges = self.get_recommendation_edges(top_k)
