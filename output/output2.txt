@@ -1,0 +1,140 @@
+time elapsed to get predictions:  0.1848735
+getting preds
+time elapsed to get top_k:  46.9641992
+getting recommendation edges...
+time elapsed to get recommendation edges:  0.005520999999994558
+  itemId userId
+0     39      1
+1     64      1
+2     73      1
+3     81      1
+4     83      1
+random         userId  itemId    rating
+0            1       1  3.978112
+1            1       2  3.339455
+2            1       3  3.720171
+3            1       4  3.153112
+4            1       5  3.331464
+...        ...     ...       ...
+5942615    610  193581  2.988813
+5942616    610  193583  2.597653
+5942617    610  193585  3.798847
+5942618    610  193587  2.873652
+5942619    610  193609  3.283616
+
+[5942620 rows x 3 columns]
+provider visibility
+popular visibility:  0.08904742352699652
+not-popular visibility:  0.07879285567645247
+disparate visibility:  2.88701770277983
+item visibility
+popular visibility:  0.5267213114754098
+not-popular visibility:  0.47327868852459015
+disparate visibility:  2.0420081967213113
+Estimating biases using als...
+Estimating biases using als...
+time elapsed to get predictions:  0.21985319999998865
+getting preds
+time elapsed to get top_k:  32.4954599
+getting recommendation edges...
+time elapsed to get recommendation edges:  0.00502420000000825
+  itemId userId
+0    318      1
+1    750      1
+2   2959      1
+3    858      1
+4   1204      1
+baseline         userId  itemId    rating
+0            1       1  4.609462
+1            1       2  4.200552
+2            1       3  4.018126
+3            1       4  3.751802
+4            1       5  3.788054
+...        ...     ...       ...
+5942615    610  193581  3.657083
+5942616    610  193583  3.611628
+5942617    610  193585  3.611628
+5942618    610  193587  3.611628
+5942619    610  193609  3.671376
+
+[5942620 rows x 3 columns]
+provider visibility
+popular visibility:  0.13767193594744406
+not-popular visibility:  0.018764114144939437
+disparate visibility:  4.569720084009367
+item visibility
+popular visibility:  1.0
+not-popular visibility:  0.0
+disparate visibility:  5.0
+time elapsed to get predictions:  8.051443000000006
+getting preds
+time elapsed to get top_k:  55.388183199999986
+getting recommendation edges...
+time elapsed to get recommendation edges:  0.00688890000000697
+  itemId userId
+0    246      1
+1    260      1
+2    318      1
+3    356      1
+4    527      1
+SVD         userId  itemId    rating
+0            1       1  4.329988
+1            1       2  4.312258
+2            1       3  3.981011
+3            1       4  3.740700
+4            1       5  3.700592
+...        ...     ...       ...
+5942615    610  193581  3.645039
+5942616    610  193583  3.434735
+5942617    610  193585  3.498464
+5942618    610  193587  3.494555
+5942619    610  193609  3.586927
+
+[5942620 rows x 3 columns]
+provider visibility
+popular visibility:  0.11739889139807021
+not-popular visibility:  0.04774173680969
+disparate visibility:  3.8640780945648596
+item visibility
+popular visibility:  0.9775409836065574
+not-popular visibility:  0.022459016393442624
+disparate visibility:  4.859631147540983
+Estimating biases using als...
+Computing the msd similarity matrix...
+Done computing similarity matrix.
+Estimating biases using als...
+Computing the msd similarity matrix...
+Done computing similarity matrix.
+time elapsed to get predictions:  0.5002298999999653
+getting preds
+time elapsed to get top_k:  200.67580879999997
+getting recommendation edges...
+time elapsed to get recommendation edges:  0.004878700000062963
+  itemId userId
+0     40      1
+1     47      1
+2     50      1
+3     53      1
+4     99      1
+KNN         userId  itemId    rating
+0            1       1  4.624035
+1            1       2  4.171438
+2            1       3  4.086291
+3            1       4  3.200653
+4            1       5  3.704900
+...        ...     ...       ...
+5942615    610  193581  4.044628
+5942616    610  193583  3.544628
+5942617    610  193585  3.544628
+5942618    610  193587  3.544628
+5942619    610  193609  4.202358
+
+[5942620 rows x 3 columns]
+provider visibility
+popular visibility:  0.031892835146787105
+not-popular visibility:  0.09541161979059741
+disparate visibility:  0.9647320102634216
+item visibility
+popular visibility:  0.025737704918032785
+not-popular visibility:  0.9742622950819673
+disparate visibility:  -1.0891393442622952

@@ -1,59 +1,81 @@
 from recommendation_graph import Graph
 from data_utils import get_data, get_movie_company_data
-
-# from tabulate import tabulate
-
-# get_movie_company_data('movie-lens-25m')
-
-RANDOM = 'random'
-BASELINE = 'baseline'
-KNN = 'KNN'
-SVD = 'SVD'
+import sys
 
 def graph():
-  producer_data, item_data, user_data, rating_data, production_data = get_data("movie-lens-25m")
+  producer_data, item_data, user_data, rating_data, production_data = get_data("movie-lens-small")
 
-  g = Graph(rating_data, production_data, k = 10)
+  # create the multisided graph
+  g = Graph(item_data['itemId'], user_data, rating_data, production_data, k = 10)
 
-  pop_df = g.find_initial_popularity()
+  p_pop_df = g.find_initial_popularity('provider')
+  print(p_pop_df)
 
-  alpha = g.find_alpha(pop_df)
-  group1, group2 = g.get_groups_by_popularity(pop_df, alpha)
+  alpha = g.find_alpha(p_pop_df, 'provider')
+  pg1, pg2 = g.get_groups_by_popularity(p_pop_df, alpha)
 
-  print('popular group size:', group1.shape)
-  print('other group size:', group2.shape)
+  i_pop_df = g.find_initial_popularity('item')
+  print(i_pop_df)
+  alpha = g.find_alpha(i_pop_df, 'item')
+  print(alpha)
+  ig1, ig2 = g.get_groups_by_popularity(i_pop_df, alpha)
 
-  print("getting recommendations")
-  algo = SVD
+  # plot the number of ratings each item got
+  g.plot_data(i_pop_df['item'], i_pop_df['numRatings'],
+              'Item', 'Num times rated', 'Item Popularity Distribution', 'line')
+
+  # for each provider plot the sum of the number of ratings each item got for 
+  # every item produced by that provider
+  g.plot_data(p_pop_df['provider'], p_pop_df['numRatings'],
+              'Provider', 'Num times rated', 'Provider Popularity Distribution', 'line')
+
+  print('popular group size:', pg1.shape)
+  print('other group size:', pg2.shape)
+
+  print('popular group size:', ig1.shape)
+  print('other group size:', ig2.shape)
 
   data = g.load_data(rating_data)
-  # g.compare_models(data)
 
-  recommendations = g.get_recs(data, item_data['itemId'], user_data, algo)
-  g.modify_connections(zip(recommendations['itemId'],recommendations['userId']))
+  algorithms = ['random', 'baseline', 'SVD', 'KNN']
 
-  v1 = g.find_group_visibility(group1)
-  v2 = g.find_group_visibility(group2)
+  preds_lst = {}
 
-  print(algo)
-  print('popular visibility: ', v1)
-  print('not-popular visibility: ', v2)
-  print('disparate visibility: ', v1-v2)
+  original_stdout = sys.stdout
 
-  # plot_data = g.group_data_for_plotting(pop_df)
-  # print(plot_data)
-  
-  x_data = pop_df['provider']
-  y_data = pop_df['numRatings']
+  # visibility results are written to output.txt
+  with open('output.txt', 'w') as f:
+    sys.stdout = f
+    for algorithm in algorithms:
+      # train the recommender for each algorithm
+      algo = g.fit(data, algorithm)
+      preds = g.get_all_preds(algo, item_data['itemId'], user_data)
+      preds_lst[algorithm] = preds
 
-  # y_data = grouped_data['numUsers']
-  # x_data = grouped_data['numRatings']
-  # g.plot_data(x_data, y_data, 'providers', 'num times rated', 'Popularity Distribution (ml-latest-small)', 
-  #             'line', log = False)
+      # get recommendation lists for each user and update the graph accordingly
+      rec_edges = g.get_recs(data, item_data['itemId'], user_data, algorithm)
+      g.modify_connections(zip(rec_edges['itemId'], rec_edges['userId']))
 
-# producer_data, item_data, user_data, rating_data, production_data = get_data("movie-lens-small")
+      # calculate group and disparate visibility for provider and item
+      pv1 = g.find_group_visibility(pg1, 'provider')
+      pv2 = g.find_group_visibility(pg2, 'provider')
+
+      print('provider visibility')
+      print('popular visibility: ', pv1)
+      print('not-popular visibility: ', pv2)
+      print('disparate visibility: ', g.find_disparate_visibility(pg1, pg2, 'provider'))
+
+      iv1 = g.find_group_visibility(ig1, 'item')
+      iv2 = g.find_group_visibility(ig2, 'item')
+
+      print('item visibility')
+      print('popular visibility: ', iv1)
+      print('not-popular visibility: ', iv2)
+      print('disparate visibility: ', g.find_disparate_visibility(ig1, ig2, 'item'))
+    sys.stdout = original_stdout
+
+  # for each algorithm plot the predicted value against the actual rating each item received in the dataset
+  # g.plot_predicted_vs_actual_score(preds_lst, rating_data)
+
 graph()
 
-# print(item_data.head(10))
-# print(rating_data.head(10))
-# print(production_data.head(10))

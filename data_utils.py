@@ -6,7 +6,6 @@ import unicodedata
 DATA_DIR = './datasets/'
 API_KEY = '0ab37300617849845e65d552a07cdeee'
 
-
 def read_csv(dir_name, data_name, csv_params):
   """Load csv into pandas dataframe.
   
@@ -222,15 +221,8 @@ def get_author_data(temp_data):
       # write_company_to_file('book-crossing', n, author.title())
     write_items_companies_to_file('book-crossing',[n],book_id)
 
-def get_rating_data(track_data):
-  return (track_data.groupby(['userId','producerName', 'trackName'])
-          .size().reset_index(name='playCounts'))
-
-def get_production_data(track_data):
-  return None
-
 def get_users(rating_data):
-  return rating_data['userId'].drop_duplicates()
+  return rating_data['userId'].drop_duplicates().reset_index(drop=True)
 
 def column_to_string(dataset, column):
   return dataset[column].apply(lambda x: f'{x:.0f}').astype(str)
@@ -247,14 +239,17 @@ def get_data(name):
       company_dir_name = 'ml-latest-small-company'
     csv_params = dict(header=0, usecols=[0, 1], names=['itemId', 'itemName'])
     item_data = read_csv(dir_name, 'movies.csv', csv_params)
+    item_data['itemId'] = column_to_string(item_data, 'itemId')
 
     csv_params = dict(header=0, usecols=[0, 1, 2], 
       names=['userId', 'itemId', 'rating',])
     rating_data = read_csv(dir_name, 'ratings.csv', csv_params)
-    rating_data['itemId'] = rating_data['itemId'].apply(lambda x: f'{x:.0f}').astype(str)
-    rating_data['userId'] = rating_data['userId'].apply(lambda x: f'{x:.0f}').astype(str)
-    
+    rating_data['itemId'] = column_to_string(rating_data, 'itemId')
+    rating_data['userId'] = column_to_string(rating_data, 'userId')
+
     user_data = get_users(rating_data) 
+
+    print(rating_data)
 
     csv_params = dict(header=0, usecols=[0, 1], names=['producerId', 'producerName'])
     producer_data = read_csv(company_dir_name, 'companies.csv', csv_params)

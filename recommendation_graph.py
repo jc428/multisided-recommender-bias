@@ -1,6 +1,6 @@
 from collections import defaultdict
-from surprise import Dataset, Reader, accuracy
-from surprise import BaselineOnly, SVD, KNNBaseline, NormalPredictor
+from surprise import Dataset, Reader
+from surprise import BaselineOnly, SVD, KNNBaseline, KNNBasic, NormalPredictor
 from surprise.model_selection import GridSearchCV, cross_validate
 
 import numpy as np
@@ -19,10 +19,14 @@ RECOMMENDATION = 'recommendation'
 
 #k is num of recommendations
 class Graph(object):
-  def __init__(self, rating_data, production_data, k = 5):
+  def __init__(self, item_data, user_data, rating_data, production_data, k = 5):
     self._production_graph = defaultdict(set)
     self._recommendation_graph = defaultdict(set)
     self._graph = defaultdict(set)
+    self.__users = user_data
+    self.__numUsers = user_data.shape[0]
+    self.__items = item_data
+    self.__numItems = item_data.shape[0]
     # self._producer_nodes = []
     # self._item_nodes = []
     # self._user_nodes = []
@@ -95,19 +99,33 @@ class Graph(object):
     else:
       raise NodeTypeError('node must be provider or item')
 
-  def find_group_visibility(self, group):
-    numUsers = 0
-    numItems = 0
+  def find_group_visibility(self, group, type):
+    k = self._k
+    userCount = 0
 
-    for provider in group:
-      numUsers = numUsers + self.find_individual_visibility(provider)
-      numItems = numItems + self.get_out_degree(provider)
-    v = numUsers /(numItems*self._k)
+    numUsers = self.__numUsers
+    numItems = self.__numItems
+    
+    if type == 'provider':
+      for provider in group:
+        userCount = userCount + self.find_individual_visibility(provider)
+      v = userCount /(numItems*k)
+    elif type == 'item':
+      for item in group:
+        userCount = userCount + self.find_individual_visibility(item)
+      v = userCount/(numUsers * k)
     return v
   
-  def find_disparate_visibility(self, g1, g2):
-    v1 = self.find_group_visibility(g1)
-    v2 = self.find_group_visibility(g2)
+  def find_disparate_visibility(self, g1, g2, type):
+    if type == 'provider':
+      s1 = .03
+      s2 = .97
+    elif type == 'item':
+      s1 = .2
+      s2 = .8
+
+    v1 = self.find_group_visibility(g1, type) / s1
+    v2 = self.find_group_visibility(g2, type) / s2
     return v1 - v2
 
   def find_all_visibilities(self, node_type):
@@ -121,24 +139,29 @@ class Graph(object):
     df = pd.DataFrame(arr, columns = ['nodeLabel', 'visibility'])
     return df
 
-  def find_initial_popularity(self):
-    popularity_df = self.find_all_visibilities('provider').rename(columns={'visibility': 'numRatings'})
+  def find_initial_popularity(self, type):
+    """ type: 'provider' or 'item' """
+    popularity_df = self.find_all_visibilities(type).rename(columns={'visibility': 'numRatings'})
     popularity_df = popularity_df.sort_values(by=['numRatings'], ascending = False).reset_index(drop = True)
     popularity_df.reset_index(inplace=True)
-    popularity_df = popularity_df.rename(columns={'index': 'provider'})
+    popularity_df = popularity_df.rename(columns={'index': type})
 
     return popularity_df
 
-  def group_data_for_plotting(self, data):
-    grouped_data = data.groupby('numRatings')['nodeLabel'].count().reset_index(name = 'numProviders').sort_values(by=['numRatings'], ascending = False)
-    # grouped_data['numProviders'] = grouped_data['numProviders'].cumsum() 
-    # print(sorted_data)
-    return grouped_data
-
-  def find_alpha(self, popularity_data):
-    alpha = popularity_data['numRatings'].quantile(.97)
+  def find_alpha(self, popularity_data, type):
+    if type == 'provider':
+      p = .97
+    elif type == 'item':
+      p = .9
+    alpha = popularity_data['numRatings'].quantile(p)
     print(alpha)
     return alpha
+
+  def get_groups_by_popularity(self, data, alpha):
+    """ producers with visibility > alpha are popular """
+    group1 = data['nodeLabel'][data['numRatings'] > alpha]
+    group2 = data['nodeLabel'][data['numRatings'] <= alpha]
+    return group1, group2
   
   def plot_data(self, x_data, y_data, x_label, y_label, title, plot_type, log = False):
     if (log):
@@ -150,23 +173,53 @@ class Graph(object):
     
     alpha1  = y_data.quantile(.70)
     alpha2 = y_data.quantile(.80)
-    alpha3 = y_data.quantile(.9)
-    alpha4 = y_data.quantile(.97)
+    alpha3 = x_data.quantile(.1)
+    alpha4 = x_data.quantile(.03)
     alpha5 = y_data.quantile(.98)
 
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     plt.title(title)
-    plt.axhline(y = alpha4, color = 'red')
-    plt.axhline(y = alpha5, color = 'blue')
-    plt.text(0, alpha4, str(alpha4), ha = 'left', va = 'center')
+    plt.axvline(x = alpha3, color = 'red')
     plt.show()
 
-  def get_groups_by_popularity(self, data, alpha):
-    """ producers with visibility > alpha are popular """
-    group1 = data['nodeLabel'][data['numRatings'] > alpha]
-    group2 = data['nodeLabel'][data['numRatings'] <= alpha]
-    return group1, group2
+  def plot_predicted_vs_actual_score(self, predicted_scores, actual_scores):
+    """ """
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1,4, constrained_layout = True, sharey = True)
+    fig.suptitle('Predicted vs Actual Ratings')
+    fig.text(0.5, 0.04, 'actual rating', ha='center')
+    fig.text(0.04, 0.5, 'predicted rating', va='center', rotation='vertical')
+    colors = ['tab:blue','tab:red','tab:green', 'tab:purple']
+    axs = [ax1,ax2,ax3,ax4]
+
+    for (algo, preds), color, ax in zip(predicted_scores.items(), colors, axs):
+      print(algo, preds)
+      merged_df = actual_scores.merge(preds, on = ['userId', 'itemId'])
+      x = merged_df['rating_x']
+      y = merged_df['rating_y']
+      ax.scatter(x, y, s = 10, c = color)
+      ax.set_title(algo)
+      ax.grid(True)
+
+    plt.show()
+
+  def plot_visibility_vs_popularity(self, visibility, popularity) :
+
+    merged = popularity.merge(visibility, how = 'left', on = 'nodeLabel')
+    print(merged)
+    vis_x = merged['provider']
+    vis_y = visibility['visibility']
+    plt.scatter(vis_x, vis_y, s = 10, c = 'red', label = 'visibility')
+
+    pop_x = popularity['provider']
+    pop_y = popularity['numRatings']
+    plt.scatter(pop_x, pop_y, s = 10, c = 'blue', label = 'popularity')
+    plt.xlabel('provider')
+    plt.ylabel('num users reached')
+    plt.title('Provider Visibility and Popularity (SVD)')
+    plt.legend()
+    plt.show()
+
 
   def select_model(self, rating_data, algorithm, param_grid):
     if algorithm == 'SVD':
@@ -190,9 +243,10 @@ class Graph(object):
   def compare_models(self, data):
     algos = [NormalPredictor(), BaselineOnly(), SVD(), KNNBaseline()]
     print('cross validating random')
-    cross_validate(algos[3], data, measures=['RMSE', 'MAE'], cv=5, verbose=True)
+    for algo in algos:
+      cross_validate(algo, data, measures=['RMSE', 'MAE'], cv=5, verbose=True)
 
-  def get_predictions(self, data, algorithm):
+  def fit(self, data, algorithm):
     """ rating_data: pandas dataframe with columns userId, itemId, rating"""
 
     trainset = data.build_full_trainset()
@@ -210,6 +264,13 @@ class Graph(object):
     algo.fit(trainset)
 
     return algo
+  
+  def get_all_preds(self, algo, item_ids, user_ids):
+    preds = [(str(uid), str(iid), algo.predict(uid,iid).est)
+      for uid in user_ids for iid in item_ids]
+
+    df = pd.DataFrame(preds, columns=['userId', 'itemId', 'rating'])
+    return df
 
   def get_top_k(self, algo, item_ids, user_ids):
     """Return the top-k recommendation for each user from a set of predictions.
@@ -232,12 +293,6 @@ class Graph(object):
       preds = [(iid, algo.predict(uid,iid).est) for iid in item_ids]
       preds.sort(key=lambda x: x[1], reverse=True)
       top_k[uid] = preds[:k]
- 
-    # print('getting top k...')
-    # # Then sort the predictions for each user and retrieve the k highest ones.
-    # for uid, user_ratings in top_k.items():
-    #   user_ratings.sort(key=lambda x: x[1], reverse=True)
-    #   top_k[uid] = user_ratings[:k]
 
     return top_k
 
@@ -259,7 +314,7 @@ class Graph(object):
 
   def get_recs(self, rating_data, item_ids, user_ids, algorithm = 'baseline'):
     t0 = time.clock()
-    algo = self.get_predictions(rating_data, algorithm)
+    algo = self.fit(rating_data, algorithm)
     t1 = time.clock() 
     print("time elapsed to get predictions: ", t1-t0)
     top_k = self.get_top_k(algo, item_ids, user_ids)
